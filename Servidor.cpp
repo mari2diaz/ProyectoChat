@@ -1,25 +1,6 @@
-#include <iostream>
-#include <string>
-#include <thread>
-#include <vector>
-#include <algorithm>
-#include <winsock2.h>
-#pragma comment(lib, "Ws2_32.lib")
-
-const int MAX_CLIENTES = 2;
-const int BUFFER_SIZE = 4096;
-const int PUERTO = 80;
+#include "sockets.hpp"
 
 std::vector<SOCKET> clientes;
-
-bool InicializarSockets(){
-	WSADATA wsaData;
-	return WSAStartup(MAKEWORD(2, 2), &wsaData) == 0;
-}
-
-void CerrarSockets(){
-	WSACleanup();
-}
 
 void ProcesarCliente(SOCKET clienteSocket){
 	char buffer[BUFFER_SIZE];
@@ -29,6 +10,12 @@ void ProcesarCliente(SOCKET clienteSocket){
 		int leerBytes = recv(clienteSocket, buffer, BUFFER_SIZE, 0);
 		if(leerBytes == 0){
 			// Error o cliente desconectado
+			continue;
+		}
+		
+		// Verificar si es comando de salida
+		if(strncmp(buffer, "salir", 5) == 0){
+			std::cout << "Cliente " << clienteSocket << " desconectado." << std::endl;
 			break;
 		}
 		
@@ -40,15 +27,14 @@ void ProcesarCliente(SOCKET clienteSocket){
 		}
 	}
 	
-	// Cliente desconectado, cierra el socket y se elimina de la lista
-	std::cout << "Cliente " << clienteSocket << " desconectado." << std::endl;
-	closesocket(clienteSocket);
-	clientes.erase(std::remove(clientes.begin(), clientes.end(), clienteSocket), clientes.end());
-	
-	if(clientes.empty()){
-		std::cout << "No hay mas clientes conctados. Cerrando el servidor." << std::endl;
-		exit(0);
+	// Cerrar todos los sockets de los clientes
+	for(SOCKET cliente : clientes){
+		closesocket(clienteSocket);
 	}
+	clientes.clear();
+
+	std::cout << "Todos los clientes han sido desconectados. Cerrando el servidor." << std::endl;
+	exit(0);
 }
 
 int main(){
@@ -59,20 +45,18 @@ int main(){
 	}
 	
 	// Crear socket del servidor
-	SOCKET servidorSocket = socket(AF_INET, SOCK_STREAM, 0);
-	if(servidorSocket == INVALID_SOCKET){
-		std::cerr << "Error al crear el Socket." << std::endl;
-		return 1;
-	}
+	SOCKET servidorSocket = CrearSocket();
 	
 	// Configurar direccion del servidor
 	sockaddr_in servidorAddress;
 	servidorAddress.sin_family = AF_INET;
-	servidorAddress.sin_addr.s_addr = INADDR_ANY;
+	servidorAddress.sin_addr.s_addr = inet_addr("192.168.1.105");
 	servidorAddress.sin_port = htons(PUERTO); 
 	
+	std::cout << "Direccion IP del servidor: " << ObtenerDireccionIP(servidorSocket) << std::endl;
+	
 	// Enlazar socket a la direccion del servidor
-	if(bind(servidorSocket, (struct sockaddr*)&servidorAddress, sizeof(servidorAddress)) == SOCKET_ERROR){
+	if(bind(servidorSocket, reinterpret_cast<struct sockaddr*>(&servidorAddress), sizeof(servidorAddress)) == SOCKET_ERROR){
 		std::cerr << "Error al enlazar el socket." << std::endl;
 		return 1;
 	}
@@ -85,17 +69,9 @@ int main(){
 	
 	std::cout << "Servidor en ejecucion. Esperando clientes......" << std::endl;
 	
-	// Bucle principal para aceptar clientes
     while(true){
         // Aceptar nueva conexion de cliente
-        sockaddr_in clienteAddress{};
-        int clienteAddressSize = sizeof(clienteAddress);
-        SOCKET clienteSocket = accept(servidorSocket, reinterpret_cast<struct sockaddr*>(&clienteAddress), &clienteAddressSize);
-
-        if(clienteSocket == INVALID_SOCKET){
-            std::cerr << "Error al aceptar la conexion del cliente." << std::endl;
-            continue;
-        }
+        SOCKET clienteSocket = AceptarConexionCliente(servidorSocket);
 
         std::cout << "Cliente " << clienteSocket << " conectado." << std::endl;
 
@@ -115,8 +91,7 @@ int main(){
         clienteThread.detach();
     }
 	
-	closesocket(servidorSocket);
-	CerrarSockets();
+	CerrarSockets(servidorSocket);
 	
 	return 0;
 }
