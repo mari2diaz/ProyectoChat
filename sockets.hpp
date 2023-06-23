@@ -1,7 +1,6 @@
 #define _WIN32_WINNT 0x0600  // Habilitar funciones más nuevas de Winsock
 #include <iostream>
 #include <string>
-#include <fstream>
 #include <thread>
 #include <vector>
 #include <algorithm>
@@ -27,29 +26,53 @@ SOCKET CrearSocket(){
     return _socket;
 }
 
-std::string ObtenerDireccionIP(SOCKET _socket){
-    sockaddr_in ipAddress;
-    int ipAddressLength = sizeof(ipAddress);
-    if(getsockname(_socket, reinterpret_cast<sockaddr*>(&ipAddress), &ipAddressLength) == SOCKET_ERROR){
-        std::cerr << "Error al obtener la direccion IP del servidor." << std::endl;
+
+std::string ObtenerDireccionIPServidor(const std::string& host, int puerto){
+    struct addrinfo hints, *resultado = nullptr;
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    // Obtener la informacion de direcciones del servidor
+    int resultadoConsulta = getaddrinfo(host.c_str(), std::to_string(puerto).c_str(), &hints, &resultado);
+    if (resultadoConsulta != 0) {
+        std::cerr << "Error al obtener la informacion de direcciones: " << gai_strerror(resultadoConsulta) << std::endl;
         return "";
     }
-    char ip[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, (&ipAddress.sin_addr), ip, sizeof(ip));
-    return ip;
+
+    std::string direccionIP;
+
+    // Recorrer las direcciones encontradas hasta encontrar una direccion IPv4
+    for (struct addrinfo* actual = resultado; actual != nullptr; actual = actual->ai_next) {
+        if (actual->ai_family == AF_INET) {
+            struct sockaddr_in* sockaddr = reinterpret_cast<struct sockaddr_in*>(actual->ai_addr);
+            char ip[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &(sockaddr->sin_addr), ip, INET_ADDRSTRLEN);
+            direccionIP = std::string(ip);
+            break;
+        }
+    }
+
+    freeaddrinfo(resultado);
+
+    return direccionIP;
 }
 
 SOCKET AceptarConexionCliente(SOCKET serverSocket){
 	sockaddr_in clientAddress;
 	int clientAddressSize = sizeof(clientAddress);
 	SOCKET clientSocket = accept(serverSocket, reinterpret_cast<sockaddr*>(&clientAddress), &clientAddressSize);
-	
+
 	if(clientSocket == INVALID_SOCKET){
-		std::cerr << "Error al aceptar conexion del cliente." << std::endl;
-		continue;
+		return -1;
 	}
-	
+
 	return clientSocket;
+}
+
+void EnviarMensaje(SOCKET socket, const char* mensaje){
+    send(socket, mensaje, strlen(mensaje), 0);
 }
 
 void CerrarSockets(SOCKET _socket){
